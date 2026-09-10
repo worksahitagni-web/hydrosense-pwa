@@ -180,7 +180,8 @@
 
   <script>
     // --- EMAIL JS SETUP ---
-    emailjs.init("YOUR_PUBLIC_KEY");
+    // --- EMAIL JS SETUP ---
+    emailjs.init("_GwZuOp0P4ocyd54G");
     let lastEmailTime = 0;
 
     function triggerEmailAlert(tds, ph, temp) {
@@ -194,7 +195,7 @@
       if (now - lastEmailTime > 300000) { 
         lastEmailTime = now;
         
-        emailjs.send("YOUR_SERVICE_ID", "YOUR_TEMPLATE_ID", {
+        emailjs.send("service_b6ygdvn", "template_uteyihr", {
           to_email: targetEmail,
           tds_value: tds,
           ph_value: ph,
