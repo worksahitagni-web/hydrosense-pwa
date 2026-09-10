@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HydroSense | Water Quality Monitor</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1c2541">
+  
+  <link rel="apple-touch-icon" href="icon-512.png">
+  <link rel="icon" type="image/png" href="icon-512.png">
+
+  <!-- Chart.js & EmailJS -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+
+  <!-- Firebase Compat Libraries -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <style>
+    :root {
+      --bg-gradient: linear-gradient(135deg, #0a1128 0%, #1c2541 50%, #001233 100%);
+      --glass-bg: rgba(255, 255, 255, 0.08);
+      --glass-border: rgba(255, 255, 255, 0.18);
+      --text-main: #f0f4f8;
+      --safe: #00f0ff;
+      --warn: #ffb703;
+      --danger: #ef233c;
+      --standby: rgba(255, 255, 255, 0.2);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+    body {
+      background: var(--bg-gradient); color: var(--text-main);
+      min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 1.5rem;
+    }
+
+    .glass-panel {
+      background: var(--glass-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--glass-border); border-radius: 16px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+
+    header {
+      width: 100%; max-width: 1000px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+      align-items: center; padding: 1rem 1.5rem; margin-bottom: 1.5rem;
+    }
+
+    .select-dropdown {
+      background: rgba(0, 0, 0, 0.3); color: #fff; border: 1px solid var(--glass-border);
+      padding: 6px 12px; border-radius: 8px; outline: none; font-size: 0.9rem;
+    }
+
+    #critical-alert {
+      display: none; width: 100%; max-width: 1000px; background: rgba(239, 35, 60, 0.25);
+      border: 2px solid var(--danger); color: #fff; padding: 1rem; border-radius: 12px;
+      text-align: center; margin-bottom: 1.5rem; font-weight: 700; animation: pulse 1.2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(239, 35, 60, 0.7); }
+      70% { box-shadow: 0 0 0 15px rgba(239, 35, 60, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 35, 60, 0); }
+    }
+
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.2rem;
+      width: 100%; max-width: 1000px; margin-bottom: 1.5rem;
+    }
+
+    .metric-card { padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between; }
+    .metric-title { font-size: 0.9rem; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.8px; }
+    .metric-val { font-size: 2.2rem; font-weight: 800; margin: 8px 0; }
+    
+    .status-badge {
+      display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem;
+      font-weight: 700; text-transform: uppercase; width: fit-content;
+      background: var(--standby); border: 1px solid rgba(255,255,255,0.4); color: #fff;
+    }
+
+    .status-safe { background: rgba(0, 240, 255, 0.2); color: var(--safe); border: 1px solid var(--safe); }
+    .status-warn { background: rgba(255, 183, 3, 0.2); color: var(--warn); border: 1px solid var(--warn); }
+    .status-danger { background: rgba(239, 35, 60, 0.2); color: var(--danger); border: 1px solid var(--danger); }
+
+    .chart-container { width: 100%; max-width: 1000px; padding: 1.5rem; margin-bottom: 1.5rem; }
+
+    #auth-overlay {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
+      display: flex; justify-content: center; align-items: center; z-index: 1000;
+    }
+
+    .auth-box { width: 90%; max-width: 380px; padding: 2rem; text-align: center; }
+    .auth-box input {
+      width: 100%; padding: 10px; margin: 8px 0; background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--glass-border); border-radius: 8px; color: #fff; outline: none;
+    }
+    .btn {
+      width: 100%; padding: 10px; background: #00b4d8; border: none; border-radius: 8px;
+      color: #fff; font-weight: 700; cursor: pointer; margin-top: 10px; transition: background 0.3s ease;
+    }
+    .btn:hover { background: #0077b6; }
+    .btn-secondary { background: transparent; border: 1px solid var(--glass-border); margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+  <!-- Auth Modal -->
+  <div id="auth-overlay">
+    <div class="glass-panel auth-box">
+      <img src="icon-512.png" alt="Logo" style="width: 60px; margin-bottom: 10px; filter: drop-shadow(0 0 10px rgba(0,240,255,0.5));">
+      <h2 id="txt-login-title">Water Monitor Login</h2>
+      <p style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 1rem;" id="txt-login-sub">Sign in to access live IoT stream</p>
+      <input type="email" id="auth-email" placeholder="Email">
+      <input type="password" id="auth-pass" placeholder="Password">
+      <button class="btn" onclick="handleLogin()" id="btn-login">Sign In</button>
+      <button class="btn btn-secondary" onclick="bypassDemo()" id="btn-demo">Continue with Demo Mode</button>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="glass-panel">
+    <div style="font-weight: 800; font-size: 1.3rem; display: flex; align-items: center; gap: 8px;">
+      <img src="icon-512.png" alt="Logo" style="width: 24px;"> HydroSense PWA
+    </div>
+    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+      <select id="lang-select" class="select-dropdown" onchange="changeLanguage(this.value)">
+        <option value="en">English</option>
+        <option value="hi">हिन्दी</option>
+        <option value="bn">বাংলা</option>
+      </select>
+      <button class="select-dropdown" onclick="logout()" id="btn-logout" style="cursor: pointer;">Logout</button>
+    </div>
+  </header>
+
+  <!-- Hazard Alert -->
+  <div id="critical-alert">
+    ⚠️ <span id="alert-text">CRITICAL ALERT: TDS > 2000 ppm! Water is hazardous!</span>
+  </div>
+
+  <!-- Sensor Cards -->
+  <div class="grid">
+    <div class="glass-panel metric-card">
+      <div class="metric-title" id="lbl-tds">Total Dissolved Solids</div>
+      <div class="metric-val" id="val-tds">0 <span style="font-size: 1rem;">ppm</span></div>
+      <div class="status-badge" id="badge-tds">Waiting for Data...</div>
+    </div>
+
+    <div class="glass-panel metric-card">
+      <div class="metric-title" id="lbl-ph">pH Level</div>
+      <div class="metric-val" id="val-ph">0.0</div>
+      <div class="status-badge" id="badge-ph">Waiting for Data...</div>
+    </div>
+
+    <div class="glass-panel metric-card">
+      <div class="metric-title" id="lbl-turbidity">Turbidity</div>
+      <div class="metric-val" id="val-turbidity">0 <span style="font-size: 1rem;">NTU</span></div>
+      <div class="status-badge" id="badge-turbidity">Waiting for Data...</div>
+    </div>
+
+    <div class="glass-panel metric-card">
+      <div class="metric-title" id="lbl-temp">Temperature</div>
+      <div class="metric-val" id="val-temp">0 <span style="font-size: 1rem;">°C</span></div>
+      <div class="status-badge" id="badge-temp">Waiting for Data...</div>
+    </div>
+
+    <div class="glass-panel metric-card">
+      <div class="metric-title" id="lbl-battery">Hardware Battery (12V)</div>
+      <div class="metric-val" id="val-battery">0 <span style="font-size: 1rem;">%</span></div>
+      <div class="status-badge" id="badge-battery">Waiting for Data...</div>
+    </div>
+  </div>
+
+  <!-- Chart Panel -->
+  <div class="glass-panel chart-container">
+    <h3 style="margin-bottom: 1rem; font-weight: 600;" id="lbl-chart">Live Telemetry Trends</h3>
+    <canvas id="telemetryChart" height="100"></canvas>
+  </div>
+
+  <script>
+    // --- EMAIL JS SETUP ---
+    emailjs.init("YOUR_PUBLIC_KEY");
+    let lastEmailTime = 0;
+
+    function triggerEmailAlert(tds, ph, temp) {
+      const currentUser = firebase.auth().currentUser;
+      if (!currentUser || !currentUser.email) return; 
+
+      const targetEmail = currentUser.email;
+      const now = Date.now();
+      
+      // 5-minute cooldown to prevent spamming
+      if (now - lastEmailTime > 300000) { 
+        lastEmailTime = now;
+        
+        emailjs.send("YOUR_SERVICE_ID", "YOUR_TEMPLATE_ID", {
+          to_email: targetEmail,
+          tds_value: tds,
+          ph_value: ph,
+          temp_value: temp
+        }).then(() => console.log("Alert email sent to: " + targetEmail))
+          .catch(err => console.error("Email failed:", err));
+      }
+    }
+
+    // --- MULTILINGUAL DICTIONARY ---
+    const i18n = {
+      en: {
+        loginTitle: "Water Monitor Login", loginSub: "Sign in to access live IoT stream",
+        signIn: "Sign In", demoMode: "Continue with Demo Mode", logout: "Logout",
+        tds: "Total Dissolved Solids (TDS)", ph: "pH Level", turbidity: "Turbidity",
+        temp: "Temperature", battery: "Hardware Battery", chartTitle: "Live Telemetry Trends",
+        safe: "Safe", permissible: "Permissible", unsafe: "Unsafe", healthy: "Healthy", low: "Low Battery",
+        waiting: "Waiting for Data...",
+        alertMsg: "CRITICAL ALERT: TDS ≥ 2000 ppm! Water is contaminated and unsafe for consumption!"
+      },
+      hi: {
+        loginTitle: "जल गुणवत्ता लॉगिन", loginSub: "लाइव डेटा के लिए साइन इन करें",
+        signIn: "साइन इन करें", demoMode: "डेमो मोड जारी रखें", logout: "लॉगआउट",
+        tds: "टीडीएस (TDS)", ph: "पीएच स्तर (pH)", turbidity: "मैलापन (Turbidity)",
+        temp: "तापमान (Temp)", battery: "हार्डवेयर बैटरी", chartTitle: "लाइव जल विश्लेषण ग्राफ",
+        safe: "सुरक्षित", permissible: "स्वीकार्य", unsafe: "असुरक्षित", healthy: "स्वस्थ", low: "कम बैटरी",
+        waiting: "डेटा की प्रतीक्षा...",
+        alertMsg: "गंभीर चेतावनी: TDS 2000 ppm से अधिक! पानी पीने योग्य नहीं है!"
+      },
+      bn: {
+        loginTitle: "জল গুণমান লগইন", loginSub: "লাইভ আইওটি ডেটার জন্য সাইন ইন করুন",
+        signIn: "সাইন ইন", demoMode: "ডেমো মোড ব্যবহার করুন", logout: "লॉगআউট",
+        tds: "টিডিএস (TDS)", ph: "পিএইচ মান (pH)", turbidity: "ঘোলাটে ভাব (Turbidity)",
+        temp: "তাপমাত্রা (Temp)", battery: "হার্ডওয়্যার ব্যাটারি", chartTitle: "লাইভ গ্রাফ বিশ্লেষণ",
+        safe: "নিরাপদ", permissible: "গ্রহণযোগ্য", unsafe: "বিপদজনক", healthy: "সুস্থ", low: "লো ব্যাটারি",
+        waiting: "ডেটার জন্য অপেক্ষা...",
+        alertMsg: "জরুরী সতর্কতা: TDS ২০০০ ppm অতিক্রম করেছে! জল পানের অযোগ্য!"
+      }
+    };
+
+    let currentLang = 'en';
+    let lastData = null; 
+
+    function translateNumbers(numStr, lang) {
+      const hiDigits = ['०','१','२','३','४','५','६','७','८','९'];
+      const bnDigits = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
+      if (lang === 'hi') return String(numStr).replace(/[0-9]/g, w => hiDigits[w]);
+      if (lang === 'bn') return String(numStr).replace(/[0-9]/g, w => bnDigits[w]);
+      return String(numStr);
+    }
+
+    function changeLanguage(lang) {
+      currentLang = lang;
+      const dict = i18n[lang];
+      document.getElementById('txt-login-title').innerText = dict.loginTitle;
+      document.getElementById('txt-login-sub').innerText = dict.loginSub;
+      document.getElementById('btn-login').innerText = dict.signIn;
+      document.getElementById('btn-demo').innerText = dict.demoMode;
+      document.getElementById('btn-logout').innerText = dict.logout;
+      document.getElementById('lbl-tds').innerText = dict.tds;
+      document.getElementById('lbl-ph').innerText = dict.ph;
+      document.getElementById('lbl-turbidity').innerText = dict.turbidity;
+      document.getElementById('lbl-temp').innerText = dict.temp;
+      document.getElementById('lbl-battery').innerText = dict.battery;
+      document.getElementById('lbl-chart').innerText = dict.chartTitle;
+      document.getElementById('alert-text').innerText = dict.alertMsg;
+      
+      if (lastData) {
+        evaluateMetrics(lastData);
+      } else {
+        setWaitingState();
+      }
+    }
+
+    // --- FIREBASE CONFIGURATION ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyB_CiDB5m-p9kZZMyo7e4mwCFQb9u8v6uI",
+      authDomain: "hydrosense-18916.firebaseapp.com",
+      databaseURL: "https://hydrosense-18916-default-rtdb.firebaseio.com",
+      projectId: "hydrosense-18916",
+      storageBucket: "hydrosense-18916.firebasestorage.app",
+      messagingSenderId: "229180211749",
+      appId: "1:229180211749:web:2369d3f428de2eae5f35cc",
+      measurementId: "G-LG66LD2CSD"
+    };
+
+    let isFirebaseReady = false;
+    try {
+      firebase.initializeApp(firebaseConfig);
+      isFirebaseReady = true;
+      console.log("Firebase connected successfully!");
+    } catch (e) { 
+      console.error("Firebase connection error: ", e); 
+    }
+
+    // --- CHART.JS INITIALIZATION ---
+    const ctx = document.getElementById('telemetryChart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: [], datasets: [
+          { label: 'TDS', borderColor: '#00b4d8', data: [], tension: 0.3 },
+          { label: 'pH', borderColor: '#7209b7', data: [], tension: 0.3 },
+          { label: 'Turbidity', borderColor: '#ffb703', data: [], tension: 0.3 }
+      ]},
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { labels: { color: '#f0f4f8' } },
+          tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${translateNumbers(ctx.raw, currentLang)}` } }
+        },
+        scales: {
+          x: { ticks: { color: '#8d99ae' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+          y: { 
+            ticks: { color: '#8d99ae', callback: function(value) { return translateNumbers(value, currentLang); } }, 
+            grid: { color: 'rgba(255,255,255,0.05)' } 
+          }
+        }
+      }
+    });
+
+    function triggerBuzzer() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth'; osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+      } catch (e) {}
+    }
+
+    // --- SENSOR EVALUATION & LOGIC ---
+    function setWaitingState() {
+      const dict = i18n[currentLang];
+      
+      document.getElementById('val-tds').innerHTML = `${translateNumbers(0, currentLang)} <span style="font-size: 1rem;">ppm</span>`;
+      document.getElementById('val-ph').innerText = translateNumbers("0.0", currentLang);
+      document.getElementById('val-turbidity').innerHTML = `${translateNumbers(0, currentLang)} <span style="font-size: 1rem;">NTU</span>`;
+      document.getElementById('val-temp').innerHTML = `${translateNumbers(0, currentLang)} <span style="font-size: 1rem;">°C</span>`;
+      document.getElementById('val-battery').innerHTML = `${translateNumbers(0, currentLang)} <span style="font-size: 1rem;">%</span>`;
+
+      const badges = ['badge-tds', 'badge-ph', 'badge-turbidity', 'badge-temp', 'badge-battery'];
+      badges.forEach(id => {
+        const el = document.getElementById(id);
+        el.innerText = dict.waiting;
+        el.className = 'status-badge'; 
+      });
+      document.getElementById('critical-alert').style.display = 'none';
+    }
+
+    function evaluateMetrics(data) {
+      lastData = data;
+      const { tds, ph, turbidity, temp, battery } = data;
+      const dict = i18n[currentLang];
+
+      document.getElementById('val-tds').innerHTML = `${translateNumbers(tds, currentLang)} <span style="font-size: 1rem;">ppm</span>`;
+      document.getElementById('val-ph').innerText = translateNumbers(Number(ph).toFixed(1), currentLang);
+      document.getElementById('val-turbidity').innerHTML = `${translateNumbers(turbidity, currentLang)} <span style="font-size: 1rem;">NTU</span>`;
+      document.getElementById('val-temp').innerHTML = `${translateNumbers(temp, currentLang)} <span style="font-size: 1rem;">°C</span>`;
+      document.getElementById('val-battery').innerHTML = `${translateNumbers(battery, currentLang)} <span style="font-size: 1rem;">%</span>`;
+
+      const alertBanner = document.getElementById('critical-alert');
+      const bTds = document.getElementById('badge-tds');
+      
+      if (tds <= 500) { 
+        bTds.className = 'status-badge status-safe'; bTds.innerText = dict.safe; alertBanner.style.display = 'none'; 
+      } else if (tds < 2000) { 
+        bTds.className = 'status-badge status-warn'; bTds.innerText = dict.permissible; alertBanner.style.display = 'none'; 
+      } else { 
+        bTds.className = 'status-badge status-danger'; bTds.innerText = dict.unsafe; 
+        alertBanner.style.display = 'block'; 
+        triggerBuzzer(); 
+        triggerEmailAlert(tds, ph, temp); 
+      }
+
+      const bPh = document.getElementById('badge-ph');
+      bPh.className = (ph >= 6.5 && ph <= 8.5) ? 'status-badge status-safe' : 'status-badge status-danger';
+      bPh.innerText = (ph >= 6.5 && ph <= 8.5) ? dict.safe : dict.unsafe;
+
+      const bTurb = document.getElementById('badge-turbidity');
+      if (turbidity < 1) { bTurb.className = 'status-badge status-safe'; bTurb.innerText = dict.safe; }
+      else if (turbidity <= 5) { bTurb.className = 'status-badge status-warn'; bTurb.innerText = dict.permissible; }
+      else { bTurb.className = 'status-badge status-danger'; bTurb.innerText = dict.unsafe; }
+
+      const bBatt = document.getElementById('badge-battery');
+      if (battery > 20) { bBatt.className = 'status-badge status-safe'; bBatt.innerText = dict.healthy; }
+      else { bBatt.className = 'status-badge status-danger'; bBatt.innerText = dict.low; }
+
+      const timestamp = new Date().toLocaleTimeString();
+      chart.data.labels.push(translateNumbers(timestamp, currentLang));
+      chart.data.datasets[0].data.push(tds);
+      chart.data.datasets[1].data.push(ph);
+      chart.data.datasets[2].data.push(turbidity);
+      if (chart.data.labels.length > 10) {
+        chart.data.labels.shift();
+        chart.data.datasets.forEach(d => d.data.shift());
+      }
+      chart.update();
+    }
+
+    // --- STREAM LOGIC ---
+    let simulationTimer = null;
+    function startDemoStream() {
+      if (simulationTimer) clearInterval(simulationTimer);
+      let batLvl = 95;
+      simulationTimer = setInterval(() => {
+        batLvl = batLvl > 5 ? batLvl - 0.5 : 95;
+        evaluateMetrics({
+          tds: Math.floor(400 + Math.random() * 1800), 
+          ph: (6.2 + Math.random() * 2.6).toFixed(1),
+          turbidity: (0.5 + Math.random() * 5.5).toFixed(1),
+          temp: (24 + Math.random() * 6).toFixed(1),
+          battery: Math.floor(batLvl)
+        });
+      }, 3000);
+    }
+
+    function handleLogin() {
+      if (isFirebaseReady) {
+        const email = document.getElementById('auth-email').value;
+        const pass = document.getElementById('auth-pass').value;
+        
+        const connectFirebaseStream = () => {
+          document.getElementById('auth-overlay').style.display = 'none';
+          
+          firebase.database().ref('water_metrics/live').on('value', (s) => {
+            const val = s.val();
+            if (val) {
+              evaluateMetrics({ 
+                tds: val.tds||0, ph: val.ph||0, turbidity: val.turbidity||0, temp: val.temp||0, battery: val.battery||0 
+              });
+            } else {
+              setWaitingState();
+            }
+          });
+        };
+
+        if(!email && !pass) {
+             connectFirebaseStream();
+             return;
+        }
+
+        firebase.auth().signInWithEmailAndPassword(email, pass)
+          .then(() => {
+            connectFirebaseStream();
+          }).catch(err => alert("Error: " + err.message));
+      } else {
+        bypassDemo();
+      }
+    }
+
+    function bypassDemo() { document.getElementById('auth-overlay').style.display = 'none'; startDemoStream(); }
+    
+    function logout() {
+      if (isFirebaseReady) firebase.auth().signOut();
+      if (simulationTimer) clearInterval(simulationTimer);
+      lastData = null;
+      document.getElementById('auth-overlay').style.display = 'flex';
+    }
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js'); });
+    }
+  </script>
+</body>
+</html>

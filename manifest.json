@@ -1,0 +1,17 @@
+{
+  "name": "HydroSense Water Monitor",
+  "short_name": "HydroSense",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b132b",
+  "theme_color": "#1c2541",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
